@@ -1,13 +1,11 @@
 'use strict';
-// Velixir launcher: downloads Xray-core at runtime, writes a VLESS+WS config
-// from environment variables, and runs it on process.env.PORT.
-// Do NOT hardcode UUID or path in source: set them as Velixir env vars
-//   UUID    - VLESS client id (uuid format)
-//   WS_PATH - WebSocket path, e.g. /ws-xxxx (must start with /)
-// TLS note: Velixir edge terminates TLS for *.velixir.run and forwards
-// plaintext HTTP/WebSocket to the container, so streamSettings here is
-// ws without tls. The client uses security=tls, port 443, sni=<app>.velixir.run.
+// SnapDeploy-compatible launcher: same VLESS+WS logic as the Velixir version,
+// but all runtime writes go to a writable tmp directory, not /app.
+// SnapDeploy's /app is read-only at runtime, so writing xray.zip / config.json
+// there crashes with EACCES. /tmp is writable in the container.
+// TLS is still terminated by the platform edge, Xray itself is plaintext WS.
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const https = require('https');
 const { spawn } = require('child_process');
@@ -19,9 +17,11 @@ const WS_PATH = process.env.WS_PATH || '/ws';
 if (!UUID) { console.error('Missing env UUID'); process.exit(1); }
 if (!WS_PATH.startsWith('/')) { console.error('WS_PATH must start with /'); process.exit(1); }
 
-const DIR = __dirname;
-const ZIP = path.join(DIR, 'xray.zip');
-const BIN = path.join(DIR, 'xray');
+const WORKDIR = path.join(os.tmpdir(), 'xray-runtime');
+fs.mkdirSync(WORKDIR, { recursive: true });
+const ZIP = path.join(WORKDIR, 'xray.zip');
+const BIN = path.join(WORKDIR, 'xray');
+const CONFIG = path.join(WORKDIR, 'config.json');
 const URL = 'https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip';
 
 function download(url, dest) {
@@ -42,7 +42,7 @@ function download(url, dest) {
   if (!fs.existsSync(BIN)) {
     console.log('Downloading Xray-core...');
     await download(URL, ZIP);
-    new AdmZip(ZIP).extractAllTo(DIR, true);
+    new AdmZip(ZIP).extractAllTo(WORKDIR, true);
     fs.chmodSync(BIN, 0o755);
     try { fs.unlinkSync(ZIP); } catch {}
   }
@@ -55,8 +55,8 @@ function download(url, dest) {
     }],
     outbounds: [{ protocol: 'freedom', tag: 'direct' }],
   };
-  fs.writeFileSync(path.join(DIR, 'config.json'), JSON.stringify(config));
+  fs.writeFileSync(CONFIG, JSON.stringify(config));
   console.log('Starting xray on port ' + PORT + ' ws path ' + WS_PATH);
-  const child = spawn(BIN, ['run', '-c', path.join(DIR, 'config.json')], { stdio: 'inherit' });
+  const child = spawn(BIN, ['run', '-c', CONFIG], { stdio: 'inherit' });
   child.on('exit', (code) => process.exit(code || 0));
 })();
