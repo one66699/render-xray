@@ -1,0 +1,1 @@
+{"dependencies":{"adm-zip":"^0.5.16"},"description":"Velixir Node.js launcher for Xray VLESS + WebSocket. TLS is terminated by the Velixir edge for the velixir.run domain, so Xray itself listens as plaintext WS inside the container.","engines":{"node":"22"},"main":"index.js","name":"velixir-xray","private":true,"scripts":{"start":"node index.js"},"version":"1.0.0"}
